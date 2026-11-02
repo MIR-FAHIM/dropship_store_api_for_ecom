@@ -1,0 +1,54 @@
+name: 🚀 Deploy Store API to ResellerBrain Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: 🎉 Server Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚚 Checkout latest code
+        uses: actions/checkout@v4
+
+      - name: 🚀 Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            echo "🚀 Starting deployment of dropship_store_api_for_ecom..."
+            TARGET_DIR="${{ secrets.SERVER_DEPLOY_PATH || '/var/www/dropship_store_api_for_ecom' }}"
+            
+            if [ -d "$TARGET_DIR" ]; then
+              cd "$TARGET_DIR"
+              echo "📂 Entering $TARGET_DIR..."
+              git reset --hard
+              git pull origin main
+            else
+              echo "📂 Cloning repository into $TARGET_DIR..."
+              git clone https://github.com/MIR-FAHIM/dropship_store_api_for_ecom.git "$TARGET_DIR"
+              cd "$TARGET_DIR"
+            fi
+
+            echo "📦 Installing composer dependencies..."
+            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+
+            echo "🗄 Running database migrations..."
+            php artisan migrate --force
+
+            echo "⚡ Caching configs & routes for high performance..."
+            php artisan config:cache
+            php artisan route:cache
+
+            echo "🔑 Ensuring permissions..."
+            chmod -R 775 storage bootstrap/cache
+
+            echo "🎉 Deployment finished successfully!"
