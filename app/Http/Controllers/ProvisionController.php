@@ -99,7 +99,7 @@ class ProvisionController extends Controller
                 'delivery_outside_dhaka' => (float) $request->input('delivery_outside_dhaka', 130.00),
                 'rb_api_key' => $request->input('rb_api_key'),
                 'rb_api_secret' => $request->input('rb_api_secret'),
-                'rb_base_url' => $request->input('rb_base_url', 'http://127.0.0.1:8000/api/partner/v1'),
+                'rb_base_url' => $request->input('rb_base_url', 'https://apidropship.resellerbrain.com/public/api/partner/v1'),
                 'default_markup_amount' => (float) $request->input('default_markup_amount', 350.00),
                 'default_markup_type' => $request->input('default_markup_type', 'fixed'),
                 'auto_forward_orders' => (bool) $request->input('auto_forward_orders', true),

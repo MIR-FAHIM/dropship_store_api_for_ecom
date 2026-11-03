@@ -20,7 +20,7 @@ class ResellerBrainService
     public function __construct(?StoreSetting $store = null)
     {
         $this->settings = $store ?: StoreSetting::current();
-        $this->baseUrl = rtrim($this->settings->rb_base_url ?: 'http://127.0.0.1:8000/api/partner/v1', '/');
+        $this->baseUrl = rtrim($this->settings->rb_base_url ?: 'https://apidropship.resellerbrain.com/public/api/partner/v1', '/');
         $this->apiKey = $this->settings->rb_api_key;
         $this->apiSecret = $this->settings->rb_api_secret;
     }
