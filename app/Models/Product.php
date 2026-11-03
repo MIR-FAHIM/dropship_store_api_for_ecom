@@ -4,12 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Product extends Model
 {
     use HasFactory;
 
     protected $fillable = [
+        'store_id',
         'source',
         'rb_product_id',
         'category_id',
@@ -31,6 +34,7 @@ class Product extends Model
     ];
 
     protected $casts = [
+        'store_id' => 'integer',
         'wholesale_price' => 'float',
         'retail_price' => 'float',
         'compare_at_price' => 'float',
@@ -44,12 +48,17 @@ class Product extends Model
         'rb_product_id' => 'integer',
     ];
 
-    public function category()
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(StoreSetting::class, 'store_id');
+    }
+
+    public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
 
-    public function orderItems()
+    public function orderItems(): HasMany
     {
         return $this->hasMany(OrderItem::class);
     }

@@ -43,9 +43,12 @@ class StorefrontController extends Controller
         $settings = StoreSetting::current();
 
         return $this->success('Store information retrieved', [
+            'store_id' => $settings->id,
+            'domain' => $settings->domain,
             'store_name' => $settings->store_name,
             'store_tagline' => $settings->store_tagline,
             'store_phone' => $settings->store_phone,
+            'whatsapp_number' => $settings->whatsapp_number ?: $settings->store_phone,
             'store_email' => $settings->store_email,
             'store_address' => $settings->store_address,
             'announcement_text' => $settings->announcement_text,
@@ -60,13 +63,18 @@ class StorefrontController extends Controller
 
     /**
      * GET /api/store/categories
-     * Active categories
+     * Active categories for current store
      */
     public function getCategories(): JsonResponse
     {
-        $categories = Category::where('is_active', true)
-            ->withCount(['products' => function ($q) {
-                $q->where('is_active', true)->where('is_in_stock', true);
+        $store = StoreSetting::current();
+
+        $categories = Category::where('store_id', $store->id)
+            ->where('is_active', true)
+            ->withCount(['products' => function ($q) use ($store) {
+                $q->where('store_id', $store->id)
+                  ->where('is_active', true)
+                  ->where('is_in_stock', true);
             }])
             ->orderBy('sort_order')
             ->get();
@@ -76,11 +84,14 @@ class StorefrontController extends Controller
 
     /**
      * GET /api/store/products
-     * Public product list with filters
+     * Public product list with filters scoped to current store
      */
     public function getProducts(Request $request): JsonResponse
     {
-        $query = Product::where('is_active', true)
+        $store = StoreSetting::current();
+
+        $query = Product::where('store_id', $store->id)
+            ->where('is_active', true)
             ->with('category:id,name,slug');
 
         if ($request->boolean('featured_only')) {
@@ -92,8 +103,9 @@ class StorefrontController extends Controller
         }
 
         if ($request->filled('category_slug')) {
-            $query->whereHas('category', function ($q) use ($request) {
-                $q->where('slug', $request->category_slug);
+            $query->whereHas('category', function ($q) use ($request, $store) {
+                $q->where('store_id', $store->id)
+                  ->where('slug', $request->category_slug);
             });
         }
 
@@ -128,11 +140,14 @@ class StorefrontController extends Controller
 
     /**
      * GET /api/store/products/{slug}
-     * Single product details with related items
+     * Single product details with related items scoped to current store
      */
     public function getProductDetails(string $slug): JsonResponse
     {
-        $product = Product::where('slug', $slug)
+        $store = StoreSetting::current();
+
+        $product = Product::where('store_id', $store->id)
+            ->where('slug', $slug)
             ->where('is_active', true)
             ->with('category')
             ->first();
@@ -141,7 +156,8 @@ class StorefrontController extends Controller
             return $this->failed('Product not found or unavailable.', null, 404);
         }
 
-        $related = Product::where('is_active', true)
+        $related = Product::where('store_id', $store->id)
+            ->where('is_active', true)
             ->where('id', '!=', $product->id)
             ->when($product->category_id, fn($q) => $q->where('category_id', $product->category_id))
             ->limit(8)
@@ -155,10 +171,12 @@ class StorefrontController extends Controller
 
     /**
      * POST /api/store/checkout
-     * 1-Page Customer Checkout
+     * 1-Page Customer Checkout scoped to current store
      */
-    public function checkout(Request $request, ResellerBrainService $rbService): JsonResponse
+    public function checkout(Request $request): JsonResponse
     {
+        $store = StoreSetting::current();
+
         $validator = Validator::make($request->all(), [
             'customer_name' => 'required|string|max:191',
             'customer_phone' => 'required|string|regex:/^01[3-9]\d{8}$/',
@@ -170,7 +188,7 @@ class StorefrontController extends Controller
             'payment_method' => 'nullable|string|in:cod,bkash',
             'customer_note' => 'nullable|string|max:500',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.product_id' => 'required|integer',
             'items.*.quantity' => 'required|integer|min:1',
         ], [
             'customer_phone.regex' => 'অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01711223344)',
@@ -186,7 +204,11 @@ class StorefrontController extends Controller
             DB::beginTransaction();
 
             $productIds = collect($validated['items'])->pluck('product_id')->all();
-            $products = Product::whereIn('id', $productIds)->lockForUpdate()->get()->keyBy('id');
+            $products = Product::where('store_id', $store->id)
+                ->whereIn('id', $productIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
 
             $orderItemsData = [];
             $subtotal = 0.0;
@@ -200,7 +222,7 @@ class StorefrontController extends Controller
 
                 if (!$product || !$product->is_active) {
                     DB::rollBack();
-                    return $this->failed("Product ID {$pId} is not available.", null, 422);
+                    return $this->failed("Product ID {$pId} is not available in this store.", null, 422);
                 }
 
                 if ($product->stock < $qty) {
@@ -248,6 +270,7 @@ class StorefrontController extends Controller
             $orderNumber = 'ORD-' . date('Ymd') . '-' . strtoupper(Str::random(4));
 
             $order = Order::create([
+                'store_id' => $store->id,
                 'order_number' => $orderNumber,
                 'customer_name' => $validated['customer_name'],
                 'customer_phone' => $validated['customer_phone'],
@@ -276,8 +299,8 @@ class StorefrontController extends Controller
 
             // Auto-forward to ResellerBrain if enabled and contains supplier products
             $rbForwardResult = null;
-            $settings = StoreSetting::current();
-            if ($hasRbItems && $settings->auto_forward_orders && $rbService->isConfigured()) {
+            $rbService = new ResellerBrainService($store);
+            if ($hasRbItems && $store->auto_forward_orders && $rbService->isConfigured()) {
                 $rbForwardResult = $rbService->forwardOrderToResellerBrain($order);
             }
 
@@ -298,12 +321,17 @@ class StorefrontController extends Controller
 
     /**
      * GET /api/store/orders/track/{orderNumber}
-     * Customer order tracking
+     * Customer order tracking scoped to current store
      */
     public function trackOrder(string $orderNumber): JsonResponse
     {
-        $order = Order::where('order_number', $orderNumber)
-            ->orWhere('customer_phone', $orderNumber)
+        $store = StoreSetting::current();
+
+        $order = Order::where('store_id', $store->id)
+            ->where(function ($q) use ($orderNumber) {
+                $q->where('order_number', $orderNumber)
+                  ->orWhere('customer_phone', $orderNumber);
+            })
             ->with('items')
             ->latest()
             ->first();

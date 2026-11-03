@@ -34,22 +34,28 @@ class AdminController extends Controller
 
     /**
      * GET /api/admin/dashboard
-     * Sales & Profit Dashboard Summary
+     * Sales & Profit Dashboard Summary scoped to current store
      */
     public function getDashboard(): JsonResponse
     {
-        $totalOrders = Order::count();
-        $totalSales = Order::where('status', '!=', 'cancelled')->sum('total');
-        $totalProfit = Order::where('status', '!=', 'cancelled')->sum('total_profit');
-        $pendingOrders = Order::where('status', 'pending')->count();
-        $deliveredOrders = Order::where('status', 'delivered')->count();
+        $store = StoreSetting::current();
 
-        $recentOrders = Order::with('items')
+        $totalOrders = Order::where('store_id', $store->id)->count();
+        $totalSales = Order::where('store_id', $store->id)->where('status', '!=', 'cancelled')->sum('total');
+        $totalProfit = Order::where('store_id', $store->id)->where('status', '!=', 'cancelled')->sum('total_profit');
+        $pendingOrders = Order::where('store_id', $store->id)->where('status', 'pending')->count();
+        $deliveredOrders = Order::where('store_id', $store->id)->where('status', 'delivered')->count();
+
+        $recentOrders = Order::where('store_id', $store->id)
+            ->with('items')
             ->latest('id')
             ->limit(10)
             ->get();
 
         return $this->success('Dashboard metrics retrieved', [
+            'store_id' => $store->id,
+            'store_name' => $store->store_name,
+            'domain' => $store->domain,
             'metrics' => [
                 'total_orders' => $totalOrders,
                 'total_sales' => round((float) $totalSales, 2),
@@ -81,6 +87,7 @@ class AdminController extends Controller
             'store_name' => 'nullable|string|max:191',
             'store_tagline' => 'nullable|string|max:255',
             'store_phone' => 'nullable|string|max:30',
+            'whatsapp_number' => 'nullable|string|max:30',
             'store_email' => 'nullable|email|max:100',
             'store_address' => 'nullable|string|max:255',
             'announcement_text' => 'nullable|string|max:500',
@@ -109,8 +116,11 @@ class AdminController extends Controller
     /**
      * POST /api/admin/resellerbrain/test-connection
      */
-    public function testRbConnection(ResellerBrainService $rbService): JsonResponse
+    public function testRbConnection(): JsonResponse
     {
+        $store = StoreSetting::current();
+        $rbService = new ResellerBrainService($store);
+
         $result = $rbService->verifyConnection();
         if ($result['success']) {
             return $this->success($result['message'], $result);
@@ -121,8 +131,11 @@ class AdminController extends Controller
     /**
      * POST /api/admin/resellerbrain/sync
      */
-    public function triggerRbSync(Request $request, ResellerBrainService $rbService): JsonResponse
+    public function triggerRbSync(Request $request): JsonResponse
     {
+        $store = StoreSetting::current();
+        $rbService = new ResellerBrainService($store);
+
         // 1. Sync categories first
         $catResult = $rbService->syncCategories();
 
@@ -144,7 +157,9 @@ class AdminController extends Controller
      */
     public function getProducts(Request $request): JsonResponse
     {
-        $query = Product::with('category');
+        $store = StoreSetting::current();
+
+        $query = Product::where('store_id', $store->id)->with('category');
 
         if ($request->filled('source')) {
             $query->where('source', $request->source);
@@ -167,9 +182,11 @@ class AdminController extends Controller
      */
     public function createCustomProduct(Request $request): JsonResponse
     {
+        $store = StoreSetting::current();
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'category_id' => 'nullable|integer|exists:categories,id',
+            'category_id' => 'nullable|integer',
             'wholesale_price' => 'nullable|numeric|min:0',
             'retail_price' => 'required|numeric|min:0',
             'compare_at_price' => 'nullable|numeric|min:0',
@@ -185,10 +202,11 @@ class AdminController extends Controller
         }
 
         $validated = $validator->validated();
-        $slug = Str::slug($validated['name']) . '-' . time();
+        $slug = Str::slug($validated['name']) . '-' . $store->id . '-' . time();
         $sku = 'CUST-' . strtoupper(Str::random(6));
 
         $product = Product::create([
+            'store_id' => $store->id,
             'source' => 'custom',
             'category_id' => $validated['category_id'] ?? null,
             'name' => $validated['name'],
@@ -214,9 +232,11 @@ class AdminController extends Controller
      */
     public function updateProduct(Request $request, int $id): JsonResponse
     {
-        $product = Product::find($id);
+        $store = StoreSetting::current();
+
+        $product = Product::where('store_id', $store->id)->find($id);
         if (!$product) {
-            return $this->failed('Product not found', null, 404);
+            return $this->failed('Product not found in this store', null, 404);
         }
 
         $validator = Validator::make($request->all(), [
@@ -244,7 +264,9 @@ class AdminController extends Controller
      */
     public function getOrders(Request $request): JsonResponse
     {
-        $query = Order::with('items');
+        $store = StoreSetting::current();
+
+        $query = Order::where('store_id', $store->id)->with('items');
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -268,13 +290,16 @@ class AdminController extends Controller
      * POST /api/admin/orders/{id}/forward-to-rb
      * Retry forwarding order to ResellerBrain
      */
-    public function retryForwardRbOrder(int $id, ResellerBrainService $rbService): JsonResponse
+    public function retryForwardRbOrder(int $id): JsonResponse
     {
-        $order = Order::with('items')->find($id);
+        $store = StoreSetting::current();
+
+        $order = Order::where('store_id', $store->id)->with('items')->find($id);
         if (!$order) {
             return $this->failed('Order not found', null, 404);
         }
 
+        $rbService = new ResellerBrainService($store);
         $result = $rbService->forwardOrderToResellerBrain($order);
         if ($result['success']) {
             return $this->success($result['message'], $order->fresh());
@@ -288,7 +313,9 @@ class AdminController extends Controller
      */
     public function updateOrderStatus(Request $request, int $id): JsonResponse
     {
-        $order = Order::find($id);
+        $store = StoreSetting::current();
+
+        $order = Order::where('store_id', $store->id)->find($id);
         if (!$order) {
             return $this->failed('Order not found', null, 404);
         }

@@ -17,12 +17,12 @@ class ResellerBrainService
     protected ?string $apiKey;
     protected ?string $apiSecret;
 
-    public function __construct()
+    public function __construct(?StoreSetting $store = null)
     {
-        $this->settings = StoreSetting::current();
-        $this->baseUrl = rtrim($this->settings->rb_base_url ?: env('RESELLERBRAIN_BASE_URL', 'http://127.0.0.1:8000/api/partner/v1'), '/');
-        $this->apiKey = $this->settings->rb_api_key ?: env('RESELLERBRAIN_API_KEY');
-        $this->apiSecret = $this->settings->rb_api_secret ?: env('RESELLERBRAIN_API_SECRET');
+        $this->settings = $store ?: StoreSetting::current();
+        $this->baseUrl = rtrim($this->settings->rb_base_url ?: 'http://127.0.0.1:8000/api/partner/v1', '/');
+        $this->apiKey = $this->settings->rb_api_key;
+        $this->apiSecret = $this->settings->rb_api_secret;
     }
 
     /**
@@ -54,7 +54,7 @@ class ResellerBrainService
         if (!$this->isConfigured()) {
             return [
                 'success' => false,
-                'message' => 'ResellerBrain API Key and Secret are not configured.',
+                'message' => 'ResellerBrain API Key and Secret are not configured for store: ' . $this->settings->store_name,
             ];
         }
 
@@ -108,10 +108,13 @@ class ResellerBrainService
 
             foreach ($categories as $cat) {
                 Category::updateOrCreate(
-                    ['rb_category_id' => $cat['id']],
+                    [
+                        'store_id' => $this->settings->id,
+                        'rb_category_id' => $cat['id'],
+                    ],
                     [
                         'name' => $cat['name'],
-                        'slug' => $cat['slug'] ?: Str::slug($cat['name']),
+                        'slug' => ($cat['slug'] ?: Str::slug($cat['name'])) . '-' . $this->settings->id,
                         'icon' => $cat['icon'],
                         'banner' => $cat['banner'] ?? null,
                         'is_active' => true,
@@ -122,7 +125,7 @@ class ResellerBrainService
 
             return [
                 'success' => true,
-                'message' => "Successfully synced {$syncedCount} categories.",
+                'message' => "Successfully synced {$syncedCount} categories for {$this->settings->store_name}.",
                 'count' => $syncedCount,
             ];
         } catch (\Throwable $e) {
@@ -154,7 +157,10 @@ class ResellerBrainService
             }
 
             $items = $response->json('data.products') ?: [];
-            $categoriesByRbId = Category::whereNotNull('rb_category_id')->pluck('id', 'rb_category_id')->all();
+            $categoriesByRbId = Category::where('store_id', $this->settings->id)
+                ->whereNotNull('rb_category_id')
+                ->pluck('id', 'rb_category_id')
+                ->all();
 
             $created = 0;
             $updated = 0;
@@ -165,7 +171,9 @@ class ResellerBrainService
                 $suggestedPrice = (float) ($item['suggested_price'] ?: ($wholesalePrice + $this->settings->default_markup_amount));
                 $maxResellPrice = (float) ($item['max_resell_price'] ?: ($wholesalePrice * 1.5));
 
-                $existingProduct = Product::where('rb_product_id', $rbId)->first();
+                $existingProduct = Product::where('store_id', $this->settings->id)
+                    ->where('rb_product_id', $rbId)
+                    ->first();
 
                 // Map category
                 $localCategoryId = null;
@@ -200,11 +208,12 @@ class ResellerBrainService
                     $compareAt = round(max($maxResellPrice, $initialRetail * 1.2), 2);
 
                     Product::create([
+                        'store_id' => $this->settings->id,
                         'source' => 'resellerbrain',
                         'rb_product_id' => $rbId,
                         'category_id' => $localCategoryId,
                         'name' => $item['name'],
-                        'slug' => ($item['slug'] ?: Str::slug($item['name'])) . '-' . $rbId,
+                        'slug' => ($item['slug'] ?: Str::slug($item['name'])) . '-' . $this->settings->id . '-' . $rbId,
                         'sku' => $item['sku'] ?: ('RB-' . $rbId),
                         'wholesale_price' => $wholesalePrice,
                         'retail_price' => $initialRetail,
@@ -242,10 +251,14 @@ class ResellerBrainService
      */
     public function forwardOrderToResellerBrain(Order $order): array
     {
-        if (!$this->isConfigured()) {
+        // Use the order's store settings if available
+        $orderStore = $order->store ?: $this->settings;
+        $orderService = ($orderStore->id === $this->settings->id) ? $this : new self($orderStore);
+
+        if (!$orderService->isConfigured()) {
             $order->update([
                 'rb_status' => 'failed',
-                'rb_error' => 'ResellerBrain API keys not configured in store settings.',
+                'rb_error' => 'ResellerBrain API keys not configured in store settings for store ' . $orderStore->store_name,
             ]);
             return ['success' => false, 'message' => 'API keys not configured.'];
         }
@@ -282,8 +295,8 @@ class ResellerBrainService
 
         try {
             $response = Http::timeout(20)
-                ->withHeaders($this->headers())
-                ->post("{$this->baseUrl}/orders/create", $payload);
+                ->withHeaders($orderService->headers())
+                ->post("{$orderService->baseUrl}/orders/create", $payload);
 
             if ($response->successful()) {
                 $result = $response->json('data');
@@ -336,10 +349,13 @@ class ResellerBrainService
             return ['success' => false, 'message' => 'No ResellerBrain order reference found.'];
         }
 
+        $orderStore = $order->store ?: $this->settings;
+        $orderService = ($orderStore->id === $this->settings->id) ? $this : new self($orderStore);
+
         try {
             $response = Http::timeout(10)
-                ->withHeaders($this->headers())
-                ->get("{$this->baseUrl}/orders/{$order->rb_order_number}/status");
+                ->withHeaders($orderService->headers())
+                ->get("{$orderService->baseUrl}/orders/{$order->rb_order_number}/status");
 
             if ($response->successful()) {
                 $data = $response->json('data');

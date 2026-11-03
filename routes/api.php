@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\ProvisionController;
 use App\Http\Controllers\StorefrontController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -9,9 +10,18 @@ use Illuminate\Support\Facades\Route;
 Route::get('/ping', fn() => response()->json(['status' => 'ok', 'app' => 'dropship_store_api_for_ecom']));
 
 // ==========================================
-// PUBLIC STOREFRONT ROUTES
+// STORE PROVISIONING (Used by ResellerBrain backend)
 // ==========================================
-Route::prefix('store')->group(function () {
+Route::prefix('provision')->group(function () {
+    Route::post('/store', [ProvisionController::class, 'provisionStore']);
+    Route::post('/sync', [ProvisionController::class, 'syncStore']);
+    Route::get('/stores', [ProvisionController::class, 'listStores']);
+});
+
+// ==========================================
+// PUBLIC STOREFRONT ROUTES (Tenant-Scoped by Host Domain)
+// ==========================================
+Route::prefix('store')->middleware('resolve.store')->group(function () {
     Route::get('/info', [StorefrontController::class, 'getStoreInfo']);
     Route::get('/categories', [StorefrontController::class, 'getCategories']);
     Route::get('/products', [StorefrontController::class, 'getProducts']);
@@ -22,9 +32,9 @@ Route::prefix('store')->group(function () {
 });
 
 // ==========================================
-// STORE OWNER ADMIN ROUTES
+// STORE OWNER ADMIN ROUTES (Tenant-Scoped by Host Domain)
 // ==========================================
-Route::prefix('admin')->group(function () {
+Route::prefix('admin')->middleware('resolve.store')->group(function () {
     Route::get('/dashboard', [AdminController::class, 'getDashboard']);
     Route::get('/settings', [AdminController::class, 'getSettings']);
     Route::post('/settings', [AdminController::class, 'updateSettings']);
