@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('store_phone', 30)->default('01700000000');
             $table->string('store_email', 100)->nullable();
             $table->string('store_address', 255)->nullable();
-            $table->text('announcement_text')->nullable()->default('সারাদেশে হোম ডেলিভারি | ক্যাশ অন ডেলিভারি সুবিধা!');
+            $table->string('announcement_text', 500)->nullable()->default('সারাদেশে হোম ডেলিভারি | ক্যাশ অন ডেলিভারি সুবিধা!');
             $table->string('logo_url', 500)->nullable();
             $table->string('banner_url', 500)->nullable();
             $table->string('primary_color', 20)->default('#2563eb');
@@ -25,7 +25,7 @@ return new class extends Migration
             // ResellerBrain Partner API Integration
             $table->string('rb_api_key', 100)->nullable();
             $table->string('rb_api_secret', 150)->nullable();
-            $table->string('rb_base_url', 255)->default('http://127.0.0.1:8000/api/partner/v1');
+            $table->string('rb_base_url', 255)->default('https://apidropship.resellerbrain.com/public/api/partner/v1');
             $table->decimal('default_markup_amount', 8, 2)->default(250.00);
             $table->string('default_markup_type', 20)->default('fixed'); // 'fixed' or 'percentage'
             $table->boolean('auto_forward_orders')->default(true);
