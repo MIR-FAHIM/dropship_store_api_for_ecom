@@ -9,6 +9,7 @@ use App\Models\StoreSetting;
 use App\Services\ResellerBrainService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -331,5 +332,104 @@ class AdminController extends Controller
         $order->update(['status' => $request->status]);
 
         return $this->success('অর্ডার স্ট্যাটাস আপডেট হয়েছে', $order);
+    }
+
+    /**
+     * POST /api/admin/login
+     */
+    public function login(Request $request): JsonResponse
+    {
+        $store = StoreSetting::current();
+
+        $validator = Validator::make($request->all(), [
+            'password' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->failed('অনুগ্রহ করে অ্যাডমিন পাসওয়ার্ড দিন।', $validator->errors(), 422);
+        }
+
+        $password = $request->input('password');
+
+        // Check against hashed password, fallback to default 'admin123' if not yet initialized
+        $isMatch = false;
+        if (!empty($store->admin_password)) {
+            $isMatch = Hash::check($password, $store->admin_password) || $password === $store->admin_password;
+        } else {
+            $isMatch = ($password === 'admin123');
+            if ($isMatch) {
+                $store->admin_password = Hash::make('admin123');
+            }
+        }
+
+        if (!$isMatch) {
+            return $this->failed('ভুল পাসওয়ার্ড! অনুগ্রহ করে সঠিক অ্যাডমিন পাসওয়ার্ড দিন।', null, 401);
+        }
+
+        $token = Str::random(64);
+        $store->admin_token = $token;
+        $store->save();
+
+        return $this->success('লগইন সফল হয়েছে!', [
+            'token' => $token,
+            'store' => [
+                'id' => $store->id,
+                'name' => $store->store_name,
+                'domain' => $store->domain,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/admin/check-auth
+     */
+    public function checkAuth(): JsonResponse
+    {
+        $store = StoreSetting::current();
+        return $this->success('Authenticated', [
+            'store' => [
+                'id' => $store->id,
+                'name' => $store->store_name,
+                'domain' => $store->domain,
+                'phone' => $store->store_phone,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/admin/logout
+     */
+    public function logout(): JsonResponse
+    {
+        $store = StoreSetting::current();
+        $store->update(['admin_token' => null]);
+        return $this->success('সফলভাবে লগআউট হয়েছে।');
+    }
+
+    /**
+     * POST /api/admin/change-password
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $store = StoreSetting::current();
+
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:6',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->failed('পাসওয়ার্ড ভ্যালিডেশন ব্যর্থ হয়েছে।', $validator->errors(), 422);
+        }
+
+        if (!empty($store->admin_password) && !Hash::check($request->current_password, $store->admin_password)) {
+            return $this->failed('বর্তমান পাসওয়ার্ডটি সঠিক নয়।', null, 400);
+        }
+
+        $store->update([
+            'admin_password' => Hash::make($request->new_password),
+        ]);
+
+        return $this->success('পাসওয়ার্ড সফলভাবে আপডেট হয়েছে!');
     }
 }

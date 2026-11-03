@@ -33,7 +33,15 @@ class StoreSetting extends Model
         'default_markup_type',
         'auto_forward_orders',
         'is_active',
+        'admin_password',
+        'admin_token',
         'last_synced_at',
+    ];
+
+    protected $hidden = [
+        'admin_password',
+        'admin_token',
+        'rb_api_secret',
     ];
 
     protected $casts = [

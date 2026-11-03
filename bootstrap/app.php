@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'resolve.store' => \App\Http\Middleware\ResolveCurrentStore::class,
+            'store.admin'   => \App\Http\Middleware\EnsureStoreAdminAuthenticated::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

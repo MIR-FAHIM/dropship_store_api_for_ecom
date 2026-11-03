@@ -32,24 +32,34 @@ Route::prefix('store')->middleware('resolve.store')->group(function () {
 });
 
 // ==========================================
-// STORE OWNER ADMIN ROUTES (Tenant-Scoped by Host Domain)
+// STORE OWNER ADMIN ROUTES (Tenant-Scoped & Auth-Protected)
 // ==========================================
 Route::prefix('admin')->middleware('resolve.store')->group(function () {
-    Route::get('/dashboard', [AdminController::class, 'getDashboard']);
-    Route::get('/settings', [AdminController::class, 'getSettings']);
-    Route::post('/settings', [AdminController::class, 'updateSettings']);
-    
-    // ResellerBrain Sync & Handshake
-    Route::post('/resellerbrain/test-connection', [AdminController::class, 'testRbConnection']);
-    Route::post('/resellerbrain/sync', [AdminController::class, 'triggerRbSync']);
+    // Public within the store (Login)
+    Route::post('/login', [AdminController::class, 'login']);
 
-    // Product Management
-    Route::get('/products', [AdminController::class, 'getProducts']);
-    Route::post('/products', [AdminController::class, 'createCustomProduct']);
-    Route::put('/products/{id}', [AdminController::class, 'updateProduct']);
+    // Authenticated admin routes
+    Route::middleware('store.admin')->group(function () {
+        Route::get('/check-auth', [AdminController::class, 'checkAuth']);
+        Route::post('/logout', [AdminController::class, 'logout']);
+        Route::post('/change-password', [AdminController::class, 'changePassword']);
 
-    // Order Management
-    Route::get('/orders', [AdminController::class, 'getOrders']);
-    Route::post('/orders/{id}/forward-to-rb', [AdminController::class, 'retryForwardRbOrder']);
-    Route::post('/orders/{id}/status', [AdminController::class, 'updateOrderStatus']);
+        Route::get('/dashboard', [AdminController::class, 'getDashboard']);
+        Route::get('/settings', [AdminController::class, 'getSettings']);
+        Route::post('/settings', [AdminController::class, 'updateSettings']);
+        
+        // ResellerBrain Sync & Handshake
+        Route::post('/resellerbrain/test-connection', [AdminController::class, 'testRbConnection']);
+        Route::post('/resellerbrain/sync', [AdminController::class, 'triggerRbSync']);
+
+        // Product Management
+        Route::get('/products', [AdminController::class, 'getProducts']);
+        Route::post('/products', [AdminController::class, 'createCustomProduct']);
+        Route::put('/products/{id}', [AdminController::class, 'updateProduct']);
+
+        // Order Management
+        Route::get('/orders', [AdminController::class, 'getOrders']);
+        Route::post('/orders/{id}/forward-to-rb', [AdminController::class, 'retryForwardRbOrder']);
+        Route::post('/orders/{id}/status', [AdminController::class, 'updateOrderStatus']);
+    });
 });

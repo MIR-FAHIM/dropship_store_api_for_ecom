@@ -135,6 +135,16 @@ test("Unknown domain returns 404", function () use ($kernel) {
 
 // 7. Store isolation: Product creation & catalog isolation
 test("Tenant catalog isolation between stores", function () use ($kernel) {
+    // 1. Log in to Store 1 Admin
+    $login1 = sendRequest($kernel, 'POST', '/api/admin/login', ['password' => 'admin123'], ['host' => 'jashorebro.resellerbrain.com']);
+    assert($login1['status'] === 200, "Store 1 login failed: " . json_encode($login1['json']));
+    $token1 = $login1['json']['data']['token'];
+
+    // 2. Log in to Store 2 Admin
+    $login2 = sendRequest($kernel, 'POST', '/api/admin/login', ['password' => 'admin123'], ['host' => 'dhakagadget.resellerbrain.com']);
+    assert($login2['status'] === 200, "Store 2 login failed: " . json_encode($login2['json']));
+    $token2 = $login2['json']['data']['token'];
+
     // Add product to Store 1 (Jashore)
     $res1 = sendRequest($kernel, 'POST', '/api/admin/products', [
         'name' => 'Jashore Leather Bag',
@@ -142,6 +152,7 @@ test("Tenant catalog isolation between stores", function () use ($kernel) {
         'stock' => 10,
     ], [
         'host' => 'jashorebro.resellerbrain.com',
+        'authorization' => 'Bearer ' . $token1,
     ]);
     assert($res1['status'] === 201, "Store 1 product creation failed: " . json_encode($res1['json']));
 
@@ -152,6 +163,7 @@ test("Tenant catalog isolation between stores", function () use ($kernel) {
         'stock' => 20,
     ], [
         'host' => 'dhakagadget.resellerbrain.com',
+        'authorization' => 'Bearer ' . $token2,
     ]);
     assert($res2['status'] === 201, "Store 2 product creation failed: " . json_encode($res2['json']));
 
@@ -176,6 +188,12 @@ test("Tenant catalog isolation between stores", function () use ($kernel) {
 
 // 8. Checkout and order isolation
 test("Checkout isolation and store scoping", function () use ($kernel) {
+    // Log in to Store 1 & Store 2 Admin
+    $login1 = sendRequest($kernel, 'POST', '/api/admin/login', ['password' => 'admin123'], ['host' => 'jashorebro.resellerbrain.com']);
+    $token1 = $login1['json']['data']['token'];
+    $login2 = sendRequest($kernel, 'POST', '/api/admin/login', ['password' => 'admin123'], ['host' => 'dhakagadget.resellerbrain.com']);
+    $token2 = $login2['json']['data']['token'];
+
     // Fetch Dhaka Smart Earbuds product ID
     $list = sendRequest($kernel, 'GET', '/api/store/products', [], [
         'host' => 'dhakagadget.resellerbrain.com',
@@ -203,6 +221,7 @@ test("Checkout isolation and store scoping", function () use ($kernel) {
     // Verify order is visible in Store 2 Admin
     $orders2 = sendRequest($kernel, 'GET', '/api/admin/orders', [], [
         'host' => 'dhakagadget.resellerbrain.com',
+        'authorization' => 'Bearer ' . $token2,
     ]);
     $orderNumbers2 = array_column($orders2['json']['data']['data'], 'order_number');
     assert(in_array($orderNumber, $orderNumbers2), "Order should belong to Dhaka store");
@@ -210,6 +229,7 @@ test("Checkout isolation and store scoping", function () use ($kernel) {
     // Verify order is NOT visible in Store 1 Admin
     $orders1 = sendRequest($kernel, 'GET', '/api/admin/orders', [], [
         'host' => 'jashorebro.resellerbrain.com',
+        'authorization' => 'Bearer ' . $token1,
     ]);
     $orderNumbers1 = array_column($orders1['json']['data']['data'], 'order_number');
     assert(!in_array($orderNumber, $orderNumbers1), "Order MUST NOT leak to Jashore store!");
